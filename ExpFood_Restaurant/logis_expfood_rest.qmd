@@ -174,5 +174,15 @@ df_vtRsl = pd.DataFrame(
 
 
 ```{python}
+# 存成 .pkl
+# dic_dfs = {
+#     'target': df_y, 
+#     'features': df_X, 
+#     'others': df_others, 
+#     'features_vt': df_X_vt, 
+#     'vt': thres, 
+#     'vt_result': df_vtRsl
+# }
+# pd.to_pickle(dic_dfs, 'data_pre.pkl')
 
 ```
