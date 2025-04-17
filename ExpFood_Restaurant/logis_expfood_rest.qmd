@@ -1,0 +1,178 @@
+---
+title: "Expired Food Data by Logistic"
+format: html
+jupyter: python3
+---
+
+
+```{python}
+import pandas as pd
+```
+
+
+## Data Import
+```{python}
+dfs = pd.read_excel(io='mData.xlsx', sheet_name=None)
+type(dfs)
+```
+
+```{python}
+dfs.keys()
+```
+
+建立 target
+```{python}
+# 逾期食品稽查事件編號彙整
+exp_sn1 = list(dfs['ExpCase']['稽查事件編號'])
+exp_sn2 = list(dfs['WebExpCase']['稽查序號'])
+exp_sn = tuple(set(exp_sn1 + exp_sn2))
+
+# 建立完整資料表，含 target, features, others
+df_ori = dfs['Factor'].copy()
+df_ori.insert(
+    loc=1, column='target', 
+    value=df_ori['稽查事件編號'].isin(exp_sn)
+)
+
+df_ori[df_ori['target']]    # boolean indexing 
+del exp_sn1, exp_sn2, exp_sn
+```
+
+
+## Data Preprocessing
+
+先將資料縱切3部分：
+    目標變數(target)
+    特徵(feature)
+    其他欄位
+
+```{python}
+# select features by df.columns.difference()
+cols_notX = ['target', '稽查事件編號', 'Group']
+
+# target, features, others
+df_y = df_ori[cols_notX[0]].copy()
+df_X = df_ori[df_ori.columns.difference(cols_notX, sort=False)]
+df_others = df_ori[cols_notX[1:]].copy()
+
+del cols_notX
+```
+
+1. 檢測 features 是否有 null
+```{python}
+df_X.isnull().any(axis=0).sum()
+```
+
+2. 資料型別轉換
+```{python}
+print(df_X.columns)
+```
+
+* 數值型資料
+```{python}
+# int
+df_X['資本額'] = df_X['資本額'].astype('int')
+
+cols_to_int = [c for c in df_X.columns if '數' in c]    # 取出含 '數' 的欄位名稱
+df_X[cols_to_int] = df_X[cols_to_int].astype('int')
+
+cols_to_int.append('資本額')
+df_X[cols_to_int].dtypes
+```
+
+* 類別型資料
+```{python}
+# category
+cols_to_cat = ['營業縣市', '場所型式']
+df_X[cols_to_cat] = df_X[cols_to_cat].astype('category')
+
+# ordered category
+df_X['場所規模'] = pd.Categorical(
+    df_X['場所規模'], 
+    ordered=True, categories=[1, 2, 3, 4, 5]
+)
+
+cols_to_cat.append('場所規模')
+df_X[cols_to_cat].dtypes
+```
+
+```{python}
+from pandas.api.types import is_integer_dtype
+```
+
+```{python}
+# boolean
+cols_to_bool = cols_to_int + cols_to_cat + ['稽查事件編號', 'Group', 'target']
+
+for c in df_X.columns.difference(cols_to_bool, sort=False): 
+    if is_integer_dtype(df_X[c].dtype): 
+        df_X[c] = df_X[c].astype('bool')
+    else: 
+        df_X[c] = df_X[c].map({'Y':True, 'N':False})
+
+df_X[df_X.columns.difference(cols_to_bool, sort=False)].dtypes
+```
+
+```{python}
+del cols_to_int, cols_to_cat, cols_to_bool, c
+```
+
+* Variance Threshold
+
+計算 features' variance 須：
+    1. 將 category features 做編碼(用 dummy encoding)
+    2. 將 numeric features 做正規化(normalization)
+
+```{python}
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+from sklearn.compose import make_column_transformer    # 流程整合
+```
+
+```{python}
+cols_to_enc = df_X.select_dtypes(include='category').columns    # 是否加入 bool
+cols_to_norm = df_X.select_dtypes(include=['int', 'float']).columns
+
+ct = make_column_transformer(
+    (OneHotEncoder(drop='first', sparse_output=False), cols_to_enc), 
+    (MinMaxScaler(), cols_to_norm), 
+    remainder='passthrough', 
+    verbose_feature_names_out=False
+).set_output(transform='pandas')
+
+df_X_trans = ct.fit_transform(df_X)
+
+del cols_to_enc, cols_to_norm, ct
+```
+
+```{python}
+import numpy as np
+from sklearn.feature_selection import VarianceThreshold 
+```
+
+
+```{python}
+thres = df_y.mean()    # 查獲逾期食品案件比例
+vt = VarianceThreshold(threshold=thres).set_output(transform='pandas')    # default 0.0
+df_X_vt = vt.fit_transform(df_X_trans)
+
+del vt
+```
+
+
+```{python}
+print(f'variance threshold: {thres:.4f}')
+
+# 特徵篩選及 variance 計算結果
+df_vtRsl = pd.DataFrame(
+    data = {
+        '特徵': list(df_X_trans.columns), 
+        '是否排除': [False if c in df_X_vt.columns else True for c in df_X_trans.columns],
+        '變異數': np.var(df_X_trans, axis=0).round(decimals=4)
+    }, 
+)
+```
+
+
+```{python}
+
+```
